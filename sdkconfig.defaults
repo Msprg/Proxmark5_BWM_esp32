@@ -48,10 +48,15 @@ CONFIG_LOG_DEFAULT_LEVEL_WARN=y
 CONFIG_LOG_MAXIMUM_LEVEL_INFO=y
 # Dynamic frequency scaling: 120 MHz only while something holds a lock, else the
 # 26 MHz crystal. The command UART runs off the fixed PLL_F40M branch so its baud
-# does not move. Light sleep (tickless idle) is deliberately NOT enabled: the host
-# sends frames unsolicited and the UART cannot wake the chip without losing them.
+# does not move.
 CONFIG_PM_ENABLE=y
 CONFIG_PM_DFS_INIT_AUTO=y
+# Automatic light sleep from the idle task once no lock is held. The command UART
+# wakes the chip on RX edges but loses the bytes that carried them, so the host
+# leads with a disposable preamble after a quiet spell and the module holds a
+# no-light-sleep lock for UART_LINK_AWAKE_MS after any traffic (app_cmd_uart.c).
+# PM_DFS_INIT_AUTO does not switch light sleep on; app_main() does.
+CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
 # Without this the BLE controller holds the max-frequency lock for as long as it
 # is enabled (always), which would make DFS a no-op. With it the controller drops
 # the lock and powers the BT PHY down between advertising / connection events.

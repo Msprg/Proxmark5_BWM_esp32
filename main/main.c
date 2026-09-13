@@ -23,6 +23,9 @@
 #include "app_mqtt_client.h"
 #include "app_ota_ops.h"
 #include "main_settings.h"
+#if CONFIG_PM_ENABLE
+#include "esp_pm.h"
+#endif
 
 
 // Casts pointer p to type t and dereferences it to return the value.
@@ -3520,6 +3523,18 @@ void app_main(void) {
     ESP_ERROR_CHECK(app_uart_init());
     ESP_ERROR_CHECK(app_uart_set_command_callback(on_uart_cmd_complete));
     ESP_ERROR_CHECK(app_uart_set_baudrate_change_callback(on_uart_cmd_baudrate_change));
+
+#if CONFIG_PM_ENABLE && CONFIG_FREERTOS_USE_TICKLESS_IDLE
+    // CONFIG_PM_DFS_INIT_AUTO set up DFS (max = default CPU clock, min = crystal)
+    // but leaves light sleep off; switch it on. The UART link keeps its own
+    // no-light-sleep lock while there is traffic (app_cmd_uart.c).
+    esp_pm_config_t pm_cfg = {
+        .max_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
+        .min_freq_mhz = CONFIG_XTAL_FREQ,
+        .light_sleep_enable = true,
+    };
+    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_pm_configure(&pm_cfg));
+#endif
 
     // DO NOT use ESP_ERROR_CHECK for the following section.
     // If any module fails to initialize, ESP_ERROR_CHECK would trigger an infinite reboot,
