@@ -336,7 +336,11 @@ esp_err_t app_uart_init(void)
         .parity = UART_PARITY_DISABLE,
         .stop_bits = UART_STOP_BITS_1,
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-        .source_clk = UART_SCLK_DEFAULT,
+        // XTAL, not the default PLL_F40M: under DFS the PLL is powered down whenever
+        // no APB lock is held and the driver only raises it inside a read/write call,
+        // so a frame the host sends unsolicited would arrive with a dead baud clock.
+        // The 26 MHz crystal runs at every CPU frequency and clocks 460800 and 921600.
+        .source_clk = UART_SCLK_XTAL,
     };
 
     int intr_alloc_flags = 0; // UART 
