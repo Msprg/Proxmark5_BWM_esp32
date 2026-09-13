@@ -368,6 +368,25 @@ Baud-rate switching follows a special sequence:
 
 > **Source**: `components/app_uart_cmd/app_cmd_uart.c:440-483` (`app_uart_set_baud_rate`)
 
+### 4.8 Light Sleep and the Wake Preamble
+
+The module uses ESP-IDF automatic light sleep. The command UART can wake it on RX
+edges, but the bytes that carried those edges are lost, so the link follows two rules:
+
+1. **Module side**: any byte sent or received on the command UART takes a
+   no-light-sleep lock; the lock is released 5 s (`UART_LINK_AWAKE_MS`) after the
+   last byte. The module is therefore always awake for the reply to a command and
+   for the host's reply to forwarded data.
+2. **Host side**: when the host has not seen traffic in either direction for more
+   than 3 s, it sends a throw-away preamble (four `0x55` bytes, five rising edges
+   each) and waits about 10 ms before the real frame. The parser discards the
+   preamble as noise, so it is harmless to module firmware without light sleep.
+
+A host that never sends the preamble still works, except that the first frame after
+a quiet spell is lost; retry it. DFS (`CONFIG_PM_ENABLE`) runs independently of this.
+
+> **Source**: `components/app_uart_cmd/app_cmd_uart.c` (`link_touch`, `link_sleep_init`), `main/main.c` (`esp_pm_configure`)
+
 ---
 
 ## 5. BLE Information
