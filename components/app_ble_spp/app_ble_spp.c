@@ -38,6 +38,16 @@
 #define KEY_BLE_ADV_MFG_DATA            "ble_adv_mfg"
 #define KEY_BLE_DEVICE_NAME             "ble_name"
 #define KEY_BLE_DEVICE_ADDR             "ble_addr"
+// Advertising duty back-off. With zeroed interval params NimBLE advertises at its
+// "fast" default (30-60 ms), which the Bluetooth spec recommends only for the
+// first ~30 s after a device becomes discoverable. Kept up forever it is the
+// module's largest idle radio cost, so once ADV_FAST_DURATION_MS pass without a
+// connection, advertising restarts at the slow interval below. A disconnect or a
+// (re)start of the stack returns to the fast phase so the device stays quick to
+// find right after it was in use.
+#define ADV_FAST_DURATION_MS            30000
+#define ADV_SLOW_ITVL_MIN               BLE_GAP_ADV_ITVL_MS(500)
+#define ADV_SLOW_ITVL_MAX               BLE_GAP_ADV_ITVL_MS(600)
 #define KEY_BLE_NOTIFY_RETRY_NOMEM      "ble_ntf_nmem"
 #define KEY_BLE_NOTIFY_RETRY_FAIL       "ble_ntf_fail"
 #define KEY_BLE_TX_POWER_ADV            "ble_txp_adv"
@@ -88,6 +98,8 @@ typedef struct {
 } app_ble_ctx_t;
 
 static app_ble_ctx_t *s_ctx = NULL;
+// true once the fast advertising phase expired without a connection
+static bool s_adv_slow = false;
 static const char *TAG = "ble_spp";
 
 
@@ -551,6 +563,14 @@ static void ble_spp_server_advertise(void) {
     struct ble_gap_adv_params adv_params = {0};
     adv_params.conn_mode = BLE_GAP_CONN_MODE_UND;
     adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;
+    // Fast phase: NimBLE's default interval, bounded in time. Slow phase: explicit
+    // long interval, unbounded. See ADV_FAST_DURATION_MS.
+    int32_t duration_ms = ADV_FAST_DURATION_MS;
+    if (s_adv_slow) {
+        adv_params.itvl_min = ADV_SLOW_ITVL_MIN;
+        adv_params.itvl_max = ADV_SLOW_ITVL_MAX;
+        duration_ms = BLE_HS_FOREVER;
+    }
 
     // Retrieve current address type
     uint8_t own_addr_type;
@@ -567,9 +587,11 @@ static void ble_spp_server_advertise(void) {
     }
 
     // Start advertising
-    rc = ble_gap_adv_start(own_addr_type, NULL, BLE_HS_FOREVER, &adv_params, ble_spp_server_gap_event, NULL);
+    rc = ble_gap_adv_start(own_addr_type, NULL, duration_ms, &adv_params, ble_spp_server_gap_event, NULL);
     if (rc != 0) {
         ESP_LOGE(TAG, "Failed to start advertising: rc=%d", rc);
+    } else {
+        ESP_LOGI(TAG, "advertising (%s interval)", s_adv_slow ? "slow" : "fast");
     }
 }
 
@@ -829,6 +851,7 @@ static int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg) {
         s_ctx->conn_handle = BLE_HS_CONN_HANDLE_NONE;
         s_ctx->data_notify_enabled = false;
         s_ctx->battery_notify_enabled = false;
+        s_adv_slow = false;   // just been in use: be quick to find again
         ble_spp_server_advertise();
         return 0;
 
@@ -914,6 +937,9 @@ static int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg) {
     case BLE_GAP_EVENT_ADV_COMPLETE:
         ESP_LOGI(TAG, "advertise complete; reason=%d", event->adv_complete.reason);
         if (s_ctx->conn_handle == BLE_HS_CONN_HANDLE_NONE) {
+            if (event->adv_complete.reason == BLE_HS_ETIMEOUT) {
+                s_adv_slow = true;   // fast phase ran out with nobody connecting
+            }
             ble_spp_server_advertise();
         }
         return 0;
@@ -977,6 +1003,7 @@ static void ble_spp_server_on_sync(void) {
     }
 
     s_ctx->state = APP_BLE_STATE_RUNNING;
+    s_adv_slow = false;   // fresh (re)start of the stack: fast phase
     ble_spp_server_advertise();
 }
 

@@ -336,7 +336,13 @@ esp_err_t app_uart_init(void)
         .parity = UART_PARITY_DISABLE,
         .stop_bits = UART_STOP_BITS_1,
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-        .source_clk = UART_SCLK_DEFAULT,
+        // XTAL, not the default PLL_F40M branch: under DFS / light sleep the PLL is
+        // powered down whenever no APB lock is held, and the driver only raises it
+        // inside a read/write call. A frame the host sends unsolicited then arrives
+        // with a dead baud clock and is lost. The crystal runs regardless of CPU
+        // frequency, so the link survives every power state. (26 MHz XTAL reaches
+        // 460800 and 921600 well within the 2.5 MHz UART limit.)
+        .source_clk = UART_SCLK_XTAL,
     };
 
     int intr_alloc_flags = 0; // UART 
