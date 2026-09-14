@@ -28,8 +28,8 @@
 #include "app_nvs_rw.h"
 
 
-#define NOTIFY_NOMEM_RETRY_MAX          2500 // ~25s at 10ms backoff before dropping (raised with the faster backoff)
-#define NOTIFY_FAIL_RETRY_MAX           2500 // ~25s at 10ms backoff before dropping (raised with the faster backoff)
+#define NOTIFY_NOMEM_RETRY_MAX          250
+#define NOTIFY_FAIL_RETRY_MAX           250
 #define DEFAULT_BONDING_KEY             123456U // default 6-digit pairing passkey, avoids phones misinterpreting leading-zero passkeys as a short PIN
 #define DEFAULT_BAS_VALUE               0xFFU // 0~100 represents battery level; 255 means unknown battery level
 #define NAMESPACE_BLE_SPP               "app_ble"
