@@ -1,4 +1,4 @@
-﻿#include <assert.h>
+#include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <inttypes.h>
@@ -28,8 +28,8 @@
 #include "app_nvs_rw.h"
 
 
-#define NOTIFY_NOMEM_RETRY_MAX          250  // max retries when mbuf is insufficient during notify write
-#define NOTIFY_FAIL_RETRY_MAX           250  // max retries when send fails during notify write
+#define NOTIFY_NOMEM_RETRY_MAX          250
+#define NOTIFY_FAIL_RETRY_MAX           250
 #define DEFAULT_BONDING_KEY             123456U // default 6-digit pairing passkey, avoids phones misinterpreting leading-zero passkeys as a short PIN
 #define DEFAULT_BAS_VALUE               0xFFU // 0~100 represents battery level; 255 means unknown battery level
 #define NAMESPACE_BLE_SPP               "app_ble"
@@ -1206,7 +1206,7 @@ esp_err_t notify_at_retry(const void *buf, uint16_t len) {
                 ESP_LOGW(TAG, "Failed to allocate memory(ble_hs_mbuf_from_flat) for BLE notification after %d retries, data will be dropped", nomem_fail_count);
                 return ESP_ERR_NO_MEM;
             }
-            vTaskDelay(pdMS_TO_TICKS(100)); // back off before retrying to avoid hammering the allocator
+            vTaskDelay(pdMS_TO_TICKS(10));  // ~1 connection interval; long enough for a TX buffer to free, short enough not to overflow the UART (was 100ms)
             continue;
         }
         // os_mbuf allocated successfully; reset nomem counter
@@ -1219,7 +1219,7 @@ esp_err_t notify_at_retry(const void *buf, uint16_t len) {
                 ESP_LOGW(TAG, "Failed to send BLE notification due to insufficient memory after %d retries, data will be dropped", notify_fail_count);
                 return ESP_ERR_NO_MEM;
             }
-            vTaskDelay(pdMS_TO_TICKS(100)); // back off before retrying to avoid hammering the allocator
+            vTaskDelay(pdMS_TO_TICKS(10));  // ~1 connection interval; long enough for a TX buffer to free, short enough not to overflow the UART (was 100ms)
             continue;
         } else if (rc != 0) {
             return ESP_FAIL;
