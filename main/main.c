@@ -23,9 +23,7 @@
 #include "app_mqtt_client.h"
 #include "app_ota_ops.h"
 #include "main_settings.h"
-#if CONFIG_PM_ENABLE
-#include "esp_pm.h"
-#endif
+#include "app_power.h"
 
 
 // Casts pointer p to type t and dereferences it to return the value.
@@ -80,6 +78,9 @@ static bool system_ready = false;
 // WiFi functional mode; defaults to disabled. May switch to WIFI_FORWARD mode after
 // loading config on boot (SCAN mode can only be started at runtime).
 static wifi_function_mode_t g_wifi_function_mode = WIFI_FUNCTION_MODE_WIFI_DISABLE;
+// Power-save switch as loaded from NVS for app_power_init(); the live state is
+// app_power_get_enabled(). Default on.
+static uint8_t power_save_boot = 1;
 // Buffer for the WiFi STA mode MAC address
 static uint8_t wifi_sta_mac[6];
 // Default forwarding type is TCP_SERVER
@@ -617,6 +618,33 @@ static void on_uart_cmd_complete(PacketType_t type, uint16_t cmd, uint8_t *p_dat
         case APP_CMD_GET_SYS_READY_STATUS: {
             uint8_t ready_status = system_ready ? 1 : 0;
             app_uart_send_response(cmd, &ready_status, sizeof(ready_status));
+            break;
+        }
+
+        case APP_CMD_SET_SYS_POWER_SAVE: {
+            if (length != 1 || p_data[0] > 1) {
+                uart_cmd_error_report(cmd, ESP_ERR_INVALID_ARG);
+                break;
+            }
+            esp_err_t err = app_power_set_enabled(p_data[0] != 0);
+            if (err != ESP_OK) {
+                uart_cmd_error_report(cmd, err);
+                break;
+            }
+            // The switch is already applied: report that, and only log a
+            // failure to persist it.
+            err = settings_power_save_save(p_data[0]);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to save power save to NVS: %s", esp_err_to_name(err));
+            }
+            uint8_t state = app_power_get_enabled() ? 1 : 0;
+            app_uart_send_response(cmd, &state, sizeof(state));
+            break;
+        }
+
+        case APP_CMD_GET_SYS_POWER_SAVE: {
+            uint8_t state = app_power_get_enabled() ? 1 : 0;
+            app_uart_send_response(cmd, &state, sizeof(state));
             break;
         }
 
@@ -3374,6 +3402,9 @@ static void on_uart_cmd_complete(PacketType_t type, uint16_t cmd, uint8_t *p_dat
         }
 
         default:
+            // Fail fast instead of staying silent: the host would otherwise
+            // wait out its timeout on every command this firmware predates.
+            uart_cmd_error_report(cmd, ESP_ERR_NOT_SUPPORTED);
             break;
     }
 }
@@ -3419,6 +3450,13 @@ static void app_nvs_flash_load(void) {
         ESP_LOGI(TAG, "Loaded timezone from NVS: %s", timezone);
         settings_time_zone_apply(timezone);
         free(timezone); // The load function allocates memory for the string; free it after use to avoid leaks
+    }
+
+    // ----------------------------- Load power-save switch -----------------------------
+    err = settings_power_save_load(&power_save_boot, power_save_boot);
+    if (err == ESP_OK) {
+        power_save_boot = (power_save_boot != 0) ? 1 : 0;
+        ESP_LOGI(TAG, "Loaded power save from NVS: %u", (unsigned)power_save_boot);
     }
 
     // ----------------------------- Load WiFi function mode configuration -----------------------------
@@ -3524,17 +3562,9 @@ void app_main(void) {
     ESP_ERROR_CHECK(app_uart_set_command_callback(on_uart_cmd_complete));
     ESP_ERROR_CHECK(app_uart_set_baudrate_change_callback(on_uart_cmd_baudrate_change));
 
-#if CONFIG_PM_ENABLE && CONFIG_FREERTOS_USE_TICKLESS_IDLE
-    // CONFIG_PM_DFS_INIT_AUTO set up DFS (max = default CPU clock, min = crystal)
-    // but leaves light sleep off; switch it on. The UART link keeps its own
-    // no-light-sleep lock while there is traffic (app_cmd_uart.c).
-    esp_pm_config_t pm_cfg = {
-        .max_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
-        .min_freq_mhz = CONFIG_XTAL_FREQ,
-        .light_sleep_enable = true,
-    };
-    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_pm_configure(&pm_cfg));
-#endif
+    // Before the BLE stack starts, so its first advertising run already uses the
+    // right interval. Persisted; see app_power.h and APP_CMD_SET_SYS_POWER_SAVE.
+    ESP_ERROR_CHECK_WITHOUT_ABORT(app_power_init(power_save_boot != 0));
 
     // DO NOT use ESP_ERROR_CHECK for the following section.
     // If any module fails to initialize, ESP_ERROR_CHECK would trigger an infinite reboot,

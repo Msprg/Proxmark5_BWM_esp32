@@ -38,13 +38,10 @@
 #define KEY_BLE_ADV_MFG_DATA            "ble_adv_mfg"
 #define KEY_BLE_DEVICE_NAME             "ble_name"
 #define KEY_BLE_DEVICE_ADDR             "ble_addr"
-// Advertising duty back-off. With zeroed interval params NimBLE advertises at its
-// "fast" default (30-60 ms), which the Bluetooth spec recommends only for the
-// first ~30 s after a device becomes discoverable. Kept up forever it is the
-// module's largest idle radio cost, so once ADV_FAST_DURATION_MS pass without a
-// connection, advertising restarts at the slow interval below. A disconnect or a
-// (re)start of the stack returns to the fast phase so the device stays quick to
-// find right after it was in use.
+// Advertising duty. Zeroed interval params = NimBLE's "fast" default (30-60 ms):
+// quick to find, but kept up forever it is the module's largest idle radio cost.
+// Low duty: fast for ADV_FAST_DURATION_MS after boot, a disconnect or a duty
+// change, then ADV_SLOW_ITVL, under the 1.285 s that phones scan for reliably.
 #define ADV_FAST_DURATION_MS            30000
 #define ADV_SLOW_ITVL                   1636    // 1022.5 ms in 0.625 ms units
 #define KEY_BLE_NOTIFY_RETRY_NOMEM      "ble_ntf_nmem"
@@ -97,7 +94,9 @@ typedef struct {
 } app_ble_ctx_t;
 
 static app_ble_ctx_t *s_ctx = NULL;
-// true once the fast advertising phase expired without a connection
+// power-save advertising (two-phase) or NimBLE's default; see ADV_FAST_DURATION_MS
+static bool s_adv_low_duty = true;
+// true once the fast phase expired without a connection
 static bool s_adv_slow = false;
 static const char *TAG = "ble_spp";
 
@@ -562,13 +561,14 @@ static void ble_spp_server_advertise(void) {
     struct ble_gap_adv_params adv_params = {0};
     adv_params.conn_mode = BLE_GAP_CONN_MODE_UND;
     adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;
-    // Fast phase: NimBLE's default interval, bounded in time. Slow phase: explicit
-    // long interval, unbounded. See ADV_FAST_DURATION_MS.
-    int32_t duration_ms = ADV_FAST_DURATION_MS;
-    if (s_adv_slow) {
-        adv_params.itvl_min = ADV_SLOW_ITVL;
-        adv_params.itvl_max = ADV_SLOW_ITVL;
-        duration_ms = BLE_HS_FOREVER;
+    int32_t duration_ms = BLE_HS_FOREVER;
+    if (s_adv_low_duty) {
+        if (s_adv_slow) {
+            adv_params.itvl_min = ADV_SLOW_ITVL;
+            adv_params.itvl_max = ADV_SLOW_ITVL;
+        } else {
+            duration_ms = ADV_FAST_DURATION_MS;
+        }
     }
 
     // Retrieve current address type
@@ -590,8 +590,28 @@ static void ble_spp_server_advertise(void) {
     if (rc != 0) {
         ESP_LOGE(TAG, "Failed to start advertising: rc=%d", rc);
     } else {
-        ESP_LOGI(TAG, "advertising (%s interval)", s_adv_slow ? "slow" : "fast");
+        ESP_LOGI(TAG, "advertising (%s interval)", (s_adv_low_duty && s_adv_slow) ? "slow" : "fast");
     }
+}
+
+esp_err_t app_ble_set_adv_low_duty(bool low_duty) {
+    if (s_adv_low_duty == low_duty) {
+        return ESP_OK;
+    }
+    s_adv_low_duty = low_duty;
+    s_adv_slow = false;   // either way the next run starts with the fast phase
+    // The interval is fixed when advertising starts: if we are advertising now,
+    // stop and start again. An explicit stop raises no ADV_COMPLETE, so restart
+    // here; ble_spp_server_advertise() is a no-op while connected.
+    if (s_ctx != NULL && s_ctx->state == APP_BLE_STATE_RUNNING && ble_gap_adv_active()) {
+        int rc = ble_gap_adv_stop();
+        if (rc != 0 && rc != BLE_HS_EALREADY) {
+            ESP_LOGW(TAG, "Failed to stop advertising for interval change: rc=%d", rc);
+            return ESP_FAIL;
+        }
+        ble_spp_server_advertise();
+    }
+    return ESP_OK;
 }
 
 /**
@@ -840,6 +860,7 @@ static int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg) {
             s_ctx->conn_handle = BLE_HS_CONN_HANDLE_NONE;
             s_ctx->data_notify_enabled = false;
             s_ctx->battery_notify_enabled = false;
+            s_adv_slow = false;   // someone is trying: be quick to find
             ble_spp_server_advertise();
         }
         return 0;

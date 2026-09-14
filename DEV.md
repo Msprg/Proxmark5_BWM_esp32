@@ -61,6 +61,7 @@ This firmware runs on an ESP32-C2 (ESP8684) module as a BLE/WiFi wireless expans
 |----------|------|
 | `main/` | Main program entry, command routing, global state management, persistent configuration |
 | `app_uart_cmd/` | UART command/response packet I/O, CRC verification, state-machine parsing |
+| `app_power/` | Runtime power-save switch: DFS, light sleep, advertising interval |
 | `app_uart_log/` | Forward system logs to UART |
 | `app_ble_spp/` | BLE SPP (Serial Port Profile) server based on the NimBLE stack |
 | `app_wifi_connect/` | WiFi STA connection management (auto-reconnect, event callbacks) |
@@ -229,6 +230,14 @@ NVS is used to persist user configuration. The following namespaces and keys are
 | Key | Type | Description |
 |------|------|------|
 | `timezone` | string | Time zone string (for example, `CST-8`) |
+| `pwr_save` | u8 | Power-save switch (0=off, 1=on; default on) |
+| `ble_en` | u8 | Persisted BLE on/off switch (0=off, 1=on; default on) |
+
+#### Namespace `app_host` (Host (PM5) Opaque Value Slots)
+
+| Key | Type | Description |
+|------|------|------|
+| `h<id>` | u64 | Host value slot 0-255 (`APP_CMD_SET/GET_SYS_HOST_VALUE`); low 32 bits = value, bit 32 = "ever set" flag |
 
 #### Namespace `app_wifi` (WiFi Configuration)
 
@@ -388,7 +397,14 @@ preamble at all (older PM5 firmware, for example) therefore never meets a sleepi
 module: light sleep simply stays off for that link, and no frame is ever lost to it.
 DFS (`CONFIG_PM_ENABLE`) runs independently of this and still applies.
 
-> **Source**: `components/app_uart_cmd/app_cmd_uart.c` (`link_touch`, `link_sleep_init`), `main/main.c` (`esp_pm_configure`)
+**Power-save switch.** Everything above, DFS and the two-phase advertising
+(section 5.4) hang off one persisted switch, `APP_CMD_SET_SYS_POWER_SAVE`
+(section 9.2). Off, the module pins its CPU at `CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ`,
+never light-sleeps and advertises at NimBLE's fast default: the stock behaviour,
+kept for A/B power measurements and for troubleshooting the link. BLE controller
+modem sleep (`CONFIG_BT_LE_SLEEP_ENABLE`) is compile-time and stays on either way.
+
+> **Source**: `components/app_uart_cmd/app_cmd_uart.c` (`link_touch`, `link_idle_cb`, `link_preamble_scan`, `link_sleep_init`), `components/app_power/app_power.c`
 
 ---
 
@@ -437,7 +453,8 @@ The module acts as a BLE Peripheral and runs an SPP (Serial Port Profile) server
 |------|------|
 | Connection Mode | `BLE_GAP_CONN_MODE_UND` (undirected connectable) |
 | Discovery Mode | `BLE_GAP_DISC_MODE_GEN` (general discoverable) |
-| Advertising Duration | Infinite (`BLE_HS_FOREVER`) |
+| Advertising Duration | Infinite (`BLE_HS_FOREVER`); with power save on the fast phase is bounded to `ADV_FAST_DURATION_MS` (30 s), then restarted infinite at the slow interval |
+| Advertising Interval | Power save on (default): NimBLE's fast default (30-60 ms) for 30 s after boot, a disconnect or a power-save toggle, then 1022.5 ms (`ADV_SLOW_ITVL`) until something connects. Power save off: NimBLE's fast default throughout. Changes take effect at once. |
 | Preferred MTU | `CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU` (config item) |
 | Preferred PHY | 2M PHY when both sides support it |
 
@@ -911,6 +928,26 @@ When enabled, ESP_LOGx output is reported through `APP_BROADCAST_SYS_LOG_MESSAGE
 > **Important**: The host should only send other functional commands after the module reports ready.
 
 > **Source**: `main/main.c:614-618`
+
+#### 1019 - APP_CMD_SET_SYS_POWER_SAVE - Set Power-Save Mode
+
+| Direction | Format |
+|------|------|
+| Send | Payload = `uint8_t` (0=off, 1=on) |
+| Response | Payload = `uint8_t` applied state |
+
+Applies at once (no reboot) and is persisted in NVS (`app_sys/pwr_save`). See section 4.8 for what the switch covers.
+
+> **Source**: `main/main.c`, `components/app_power/app_power.c`
+
+#### 1020 - APP_CMD_GET_SYS_POWER_SAVE - Get Power-Save Mode
+
+| Direction | Format |
+|------|------|
+| Send | (no payload) |
+| Response | Payload = `uint8_t` (0=off, 1=on) |
+
+> **Source**: `main/main.c`
 
 ### 9.3 OTA and Reboot Commands (1800~)
 
