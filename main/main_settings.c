@@ -13,6 +13,7 @@
 
 // Key names
 #define KEY_TIME_ZONE               "timezone"
+#define KEY_POWER_SAVE              "pwr_save"
 #define KEY_WIFI_MODE               "wifi_mode"
 #define KEY_WIFI_FWD_TYPE           "wifi_fwd_type"
 #define KEY_WIFI_TX_PWR             "wifi_tx_pwr"
@@ -52,6 +53,38 @@ esp_err_t settings_time_zone_load(char **tz_buf) {
         .type = APP_NVS_RW_TYPE_STR,
         .data = tz_buf,
         .default_value = 0, // STR type does not use a default value
+    };
+    return app_nvs_rw_read(NAMESPACE_SYS, &nvs_item, 1);
+}
+
+/**
+ * @brief Save the power-save switch (app_power.c) to NVS.
+ * @param enabled 0 = off, 1 = on
+ * @return esp_err_t
+ */
+esp_err_t settings_power_save_save(uint8_t enabled) {
+    return app_nvs_rw_write(NAMESPACE_SYS, (app_nvs_rw_write_item_t[]) {
+        {
+            .key = KEY_POWER_SAVE,
+            .type = APP_NVS_RW_TYPE_U8,
+            .data = &enabled,
+            .length = sizeof(enabled),
+        }
+    }, 1);
+}
+
+/**
+ * @brief Load the power-save switch from NVS.
+ * @param enabled Pointer to uint8_t where the loaded value will be stored
+ * @param default_enabled Default value to use if no value is stored in NVS
+ * @return esp_err_t
+ */
+esp_err_t settings_power_save_load(uint8_t *enabled, uint8_t default_enabled) {
+    app_nvs_rw_read_item_t nvs_item = {
+        .key = KEY_POWER_SAVE,
+        .type = APP_NVS_RW_TYPE_U8,
+        .data = enabled,
+        .default_value = default_enabled,
     };
     return app_nvs_rw_read(NAMESPACE_SYS, &nvs_item, 1);
 }

@@ -47,6 +47,11 @@ esp_err_t app_ble_get_battery_level(uint8_t *level);
 esp_err_t app_ble_set_tx_power(uint8_t type, uint8_t level);
 esp_err_t app_ble_get_tx_power(uint8_t type, uint8_t *level);
 
+// Advertising interval: low duty (one event every ADV_LOW_DUTY_ITVL_MS, the
+// power-save default) or NimBLE's fast default. Takes effect at once if the
+// stack is advertising. Driven by app_power.c; safe to call before app_ble_init().
+esp_err_t app_ble_set_adv_low_duty(bool low_duty);
+
 // --- The following APIs can only be called after app_ble_start() has been invoked to start the BLE stack
 
 esp_err_t app_ble_get_bonded_count(uint8_t *count);

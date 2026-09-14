@@ -39,6 +39,8 @@ typedef enum {
     APP_CMD_SET_LOG_LEVEL                             ,    // Set log output level
     APP_CMD_GET_LOG_LEVEL                             ,    // Get log output level
     APP_CMD_GET_SYS_READY_STATUS                      ,    // Get system ready status; only safe to call other commands after system is ready
+    APP_CMD_SET_SYS_POWER_SAVE                        ,    // Set power-save mode (persisted); payload uint8_t 0=off 1=on; response = applied state
+    APP_CMD_GET_SYS_POWER_SAVE                        ,    // Get power-save mode; response uint8_t 0=off 1=on
 
     // --- NOTE: OTA and reboot commands are critical for firmware download during development;
     //  do NOT change their codes (order). Add new OTA-related commands after these entries

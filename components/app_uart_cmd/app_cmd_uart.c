@@ -23,12 +23,14 @@ static uint32_t s_uart_baud_rate = UART_BAUD_RATE_DEFAULT;
 // Light sleep vs. the host link. The host (AT32) sends frames unsolicited and the
 // UART can only wake the chip on RX edges, losing the bytes that carried them. So:
 //  - any byte in either direction takes a no-light-sleep lock and (re)arms a
-//    one-shot timer; the lock is dropped UART_LINK_AWAKE_MS after the last byte;
+//    one-shot timer; the lock is dropped UART_LINK_AWAKE_MS after the last byte
+//    (long enough for the host's reply to forwarded data, short enough that a
+//    single command costs little awake time);
 //  - the host, after a quiet spell, sends a throw-away preamble and waits a few
 //    ms before the real frame (bwm_uart_at32.c in the proxmark3 tree). The
 //    preamble's edges wake the chip; the parser discards it as noise.
 // DFS is unaffected by this lock: the driver holds APB_FREQ_MAX during transfers.
-#define UART_LINK_AWAKE_MS      5000    // keep in step with BWM_ESP_AWAKE_MS on the host
+#define UART_LINK_AWAKE_MS      2000    // keep in step with BWM_ESP_AWAKE_MS on the host
 #define UART_LINK_WAKEUP_EDGES  3       // RX rising edges that end light sleep (hw minimum)
 static esp_pm_lock_handle_t s_link_lock = NULL;
 static esp_timer_handle_t s_link_timer = NULL;

@@ -46,9 +46,11 @@ CONFIG_SPI_FLASH_AUTO_SUSPEND=y
 # can raise it at runtime with APP_CMD_SET_LOG_LEVEL when it wants the detail.
 CONFIG_LOG_DEFAULT_LEVEL_WARN=y
 CONFIG_LOG_MAXIMUM_LEVEL_INFO=y
-# Dynamic frequency scaling: 120 MHz only while something holds a lock, else the
-# 26 MHz crystal. The command UART runs off the fixed PLL_F40M branch so its baud
-# does not move.
+# Dynamic frequency scaling: full clock only while something holds a lock, else
+# the 26 MHz crystal. The BBPLL is switched OFF whenever the CPU parks on the
+# crystal (no PLL consumer refcount on the C2), so the command UART must NOT use
+# the default PLL_F40M clock: app_cmd_uart.c selects UART_SCLK_XTAL. Restoring
+# PLL_F40M there bricks the link (88b1c42 did exactly that).
 CONFIG_PM_ENABLE=y
 CONFIG_PM_DFS_INIT_AUTO=y
 # Automatic light sleep from the idle task once no lock is held. The command UART
@@ -62,3 +64,10 @@ CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
 # the lock and powers the BT PHY down between advertising / connection events.
 # LP clock is the main crystal (default): the module has no 32.768 kHz crystal.
 CONFIG_BT_LE_SLEEP_ENABLE=y
+# Sleep entry/exit and the RTOS idle path run from IRAM, so each light sleep
+# starts a little sooner and lasts a little longer. NOT ESP_SLEEP_POWER_DOWN_FLASH:
+# in IDF 5.5 that powers the flash down on any sleep longer than a few ms even
+# with the UART and BT wake sources armed, and a wake during the power-down
+# window can fault the flash (see "Power-down of Flash" in the IDF sleep docs).
+CONFIG_PM_SLP_IRAM_OPT=y
+CONFIG_PM_RTOS_IDLE_OPT=y
