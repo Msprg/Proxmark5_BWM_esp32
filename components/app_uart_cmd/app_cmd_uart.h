@@ -11,7 +11,7 @@
 #define UART_RXD_PIN           (CONFIG_UART_SPP_RXP)
 #define UART_BAUD_RATE_DEFAULT 460800   // Default communication baud rate, max supported depends on CONFIG_SOC_UART_BITRATE_MAX
 #define UART_RX_TIMEOUT        200      // Receive timeout in milliseconds, needs tuning; too short may falsely timeout normal packets, too long may waste resources on incomplete packets
-#define UART_RX_BUF_SIZE       32768    // Absorb device->host bursts so BLE can drain them before the UART overflows (was 4096; overflow -> reset_on_error drops PM3 bytes)
+#define UART_RX_BUF_SIZE       4096     // Absorb device->host bursts so BLE can drain them before the UART overflows
 #define UART_TX_BUF_SIZE       0        // Important: with TX BUF=0, uart_write_bytes call blocks waiting
 #define UART_EVENT_QUEUE_SZ    10       // UART event queue length, tune based on use; too small may lose events, too large wastes memory
 
