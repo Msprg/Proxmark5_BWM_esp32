@@ -17,6 +17,7 @@
 #define KEY_WIFI_MODE               "wifi_mode"
 #define KEY_WIFI_FWD_TYPE           "wifi_fwd_type"
 #define KEY_WIFI_TX_PWR             "wifi_tx_pwr"
+#define KEY_WIFI_PS_MODE            "wifi_ps"
 #define KEY_WIFI_INACTIVE_TIME      "wifi_inact_tm"
 #define KEY_WIFI_DHCP_ENABLE        "wifi_dhcp_en"
 #define KEY_WIFI_MAC_ADDR           "wifi_mac_addr"
@@ -149,6 +150,38 @@ esp_err_t settings_wifi_forward_type_load(int *forward_type, int default_type) {
         .type = APP_NVS_RW_TYPE_U8,
         .data = forward_type,
         .default_value = default_type,
+    };
+    return app_nvs_rw_read(NAMESPACE_WIFI, &nvs_item, 1);
+}
+
+/**
+ * @brief Save the WiFi modem power-save type to NVS.
+ * @param ps_mode wifi_ps_type_t as uint8_t (0=none, 1=min modem, 2=max modem)
+ * @return esp_err_t
+ */
+esp_err_t settings_wifi_ps_mode_save(uint8_t ps_mode) {
+    return app_nvs_rw_write(NAMESPACE_WIFI, (app_nvs_rw_write_item_t []) {
+        {
+            .key = KEY_WIFI_PS_MODE,
+            .type = APP_NVS_RW_TYPE_U8,
+            .data = &ps_mode,
+            .length = sizeof(ps_mode),
+        }
+    }, 1);
+}
+
+/**
+ * @brief Load the WiFi modem power-save type from NVS.
+ * @param ps_mode Pointer to uint8_t where the loaded value will be stored
+ * @param default_mode Default value to use if no value is stored in NVS
+ * @return esp_err_t
+ */
+esp_err_t settings_wifi_ps_mode_load(uint8_t *ps_mode, uint8_t default_mode) {
+    app_nvs_rw_read_item_t nvs_item = {
+        .key = KEY_WIFI_PS_MODE,
+        .type = APP_NVS_RW_TYPE_U8,
+        .data = ps_mode,
+        .default_value = default_mode,
     };
     return app_nvs_rw_read(NAMESPACE_WIFI, &nvs_item, 1);
 }

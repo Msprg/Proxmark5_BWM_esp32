@@ -90,6 +90,22 @@ static wifi_country_t wifi_country = { 0x00 };
 // WiFi TX power in dBm. Default is the compile-time maximum.
 // Note: this value uses 0.25 dBm steps, so divide by 0.25 to obtain the correct step count.
 static int8_t wifi_tx_power = CONFIG_ESP_PHY_MAX_WIFI_TX_POWER / 0.25;
+// WiFi modem power-save type (wifi_ps_type_t): 0 none, 1 min modem (the IDF default:
+// the modem sleeps between DTIM beacons), 2 max modem (sleeps for the configured
+// listen interval; lowest current, highest latency). Persisted; see
+// wifi_apply_ps_mode().
+static uint8_t wifi_ps_mode = WIFI_PS_MIN_MODEM;
+
+// Push wifi_ps_mode into the driver. Called wherever the driver is (re)initialised
+// or started, since init sets the IDF default. Harmless when WiFi is down.
+static esp_err_t wifi_apply_ps_mode(void) {
+    esp_err_t err = esp_wifi_set_ps((wifi_ps_type_t)wifi_ps_mode);
+    if (err != ESP_OK && err != ESP_ERR_WIFI_NOT_INIT) {
+        ESP_LOGW(TAG, "Failed to set wifi power save: %s", esp_err_to_name(err));
+        return err;
+    }
+    return ESP_OK;
+}
 // WiFi inactive time in seconds. Default is 6 s. If no data is exchanged within
 // this period after connection, WiFi is considered inactive and may enter power-saving mode.
 static uint16_t wifi_inactive_time = 6;
@@ -770,6 +786,7 @@ static void on_uart_cmd_complete(PacketType_t type, uint16_t cmd, uint8_t *p_dat
                 wifi_forward_type = new_wifi_forward_type;
                 // Initialize WiFi forward mode via the shared init helper
                 wifi_forward_common_init();
+                (void)wifi_apply_ps_mode();
             }
 
             ESP_LOGI(TAG, "Free Heap(after WIFI_FUNCTION_MODE_WIFI_FORWARD): %ld", esp_get_free_heap_size());
@@ -797,6 +814,7 @@ static void on_uart_cmd_complete(PacketType_t type, uint16_t cmd, uint8_t *p_dat
                     uart_cmd_error_report(cmd, err);
                     break;
                 }
+                (void)wifi_apply_ps_mode();
                 g_wifi_function_mode = WIFI_FUNCTION_MODE_WIFI_SCANNER;
                 ESP_LOGI(TAG, "Free Heap(after APP_CMD_SET_TO_WIFI_SCAN_MODE): %ld", esp_get_free_heap_size());
             }
@@ -1536,7 +1554,33 @@ static void on_uart_cmd_complete(PacketType_t type, uint16_t cmd, uint8_t *p_dat
                 uart_cmd_error_report(cmd, err);
                 break;
             }
+            (void)wifi_apply_ps_mode();
             app_uart_send_response(cmd, NULL, 0);
+            break;
+        }
+
+        case APP_CMD_SET_WIFI_CFG_PS_MODE: {
+            if (length != 1 || p_data[0] > WIFI_PS_MAX_MODEM) {
+                uart_cmd_error_report(cmd, ESP_ERR_INVALID_ARG);
+                break;
+            }
+            wifi_ps_mode = p_data[0];
+            // Applied now if WiFi is up, else at the next start; a failure to persist is only logged.
+            esp_err_t err = wifi_apply_ps_mode();
+            if (err != ESP_OK) {
+                uart_cmd_error_report(cmd, err);
+                break;
+            }
+            err = settings_wifi_ps_mode_save(wifi_ps_mode);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to save wifi power save to NVS: %s", esp_err_to_name(err));
+            }
+            app_uart_send_response(cmd, &wifi_ps_mode, sizeof(wifi_ps_mode));
+            break;
+        }
+
+        case APP_CMD_GET_WIFI_CFG_PS_MODE: {
+            app_uart_send_response(cmd, &wifi_ps_mode, sizeof(wifi_ps_mode));
             break;
         }
 
@@ -3483,6 +3527,14 @@ static void app_nvs_flash_load(void) {
         ESP_LOGI(TAG, "Loaded wifi tx power from NVS: %d", tx_pwr);
     }
 
+    // ----------------------------- Load WiFi power-save type -----------------------------
+    uint8_t ps_mode;
+    err = settings_wifi_ps_mode_load(&ps_mode, wifi_ps_mode);
+    if (err == ESP_OK && ps_mode <= WIFI_PS_MAX_MODEM) {
+        wifi_ps_mode = ps_mode;
+        ESP_LOGI(TAG, "Loaded wifi power save from NVS: %u", (unsigned)ps_mode);
+    }
+
     // ----------------------------- Load WiFi inactive_time configuration -----------------------------
     uint16_t inactive_time; // default 6 seconds
     err = settings_wifi_inactive_time_load(&inactive_time, wifi_inactive_time);
@@ -3595,6 +3647,7 @@ void app_main(void) {
         ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_mac(WIFI_IF_STA, wifi_sta_mac));
         ESP_ERROR_CHECK_WITHOUT_ABORT(app_wifi_connect_start());
         ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_max_tx_power(wifi_tx_power));
+        ESP_ERROR_CHECK_WITHOUT_ABORT(wifi_apply_ps_mode());
         ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_inactive_time(WIFI_IF_STA, wifi_inactive_time));
     }
 

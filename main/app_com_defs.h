@@ -107,6 +107,8 @@ typedef enum {
     APP_CMD_STOP_WIFI_CONNECT_TASK                    ,    // Stop WiFi connection task; disconnects any existing connection
     APP_CMD_GET_WIFI_CONNECT_STATUS                   ,    // Get WiFi connection task status
     APP_CMD_WAIT_FOR_WIFI_CONNECT_TASK                ,    // Wait for WiFi connection task to succeed, fail, or timeout
+    APP_CMD_SET_WIFI_CFG_PS_MODE                      ,    // WiFi config: set modem power-save type (persisted): uint8_t 0=none 1=min (default) 2=max
+    APP_CMD_GET_WIFI_CFG_PS_MODE                      ,    // WiFi config: get modem power-save type: uint8_t
 
     /*
      * TCP server commands; codes start at 2200.

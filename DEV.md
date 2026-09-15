@@ -83,10 +83,11 @@ This firmware runs on an ESP32-C2 (ESP8684) module as a BLE/WiFi wireless expans
 app_main()
    ├── srand(esp_random())              // Random seed
    ├── app_nvs_flash_init()             // Initialize NVS partition
-   ├── app_nvs_flash_load()             // Load persisted configuration
+   ├── app_nvs_flash_load()             // Load persisted configuration (incl. power save, WiFi power-save type)
    ├── app_uart_init()                  // Initialize UART command port (460800 bps)
    ├── app_uart_set_command_callback()  // Register UART command callback
    ├── app_uart_set_baudrate_change_callback() // Register baud-rate change callback
+   ├── app_power_init()                 // Apply the power-save switch (DFS, light sleep, adv interval) before BLE starts
    ├── app_log_uart_init()              // Initialize log forwarding module
    ├── app_log_uart_set_tx_callback()   // Register log forwarding callback
    ├── app_ble_init()                   // Initialize BLE module
@@ -246,6 +247,7 @@ NVS is used to persist user configuration. The following namespaces and keys are
 | `wifi_mode` | i8 | WiFi function mode (0/1/2) |
 | `wifi_fwd_type` | u8 | WiFi forwarding protocol type (0-4) |
 | `wifi_tx_pwr` | i8 | WiFi transmit power (8-80, 0.25 dBm step) |
+| `wifi_ps` | u8 | WiFi modem power-save type (0=none, 1=min modem, 2=max modem; default 1) |
 | `wifi_inact_tm` | u16 | WiFi inactive timeout (seconds) |
 | `wifi_dhcp_en` | u8 | DHCP enable (0/1) |
 | `wifi_mac_addr` | blob(6) | WiFi STA MAC address |
@@ -349,6 +351,8 @@ For a `TYPE_HOST_CMD` command sent by the host, the module returns a `TYPE_SLAVE
 
 ### 4.6 Error Reporting Mechanism
 
+A command code the firmware does not know is answered with a `CMD_ERROR` broadcast carrying `ESP_ERR_NOT_SUPPORTED`, so a host built for a newer protocol fails fast instead of waiting out its timeout.
+
 When command processing fails, the module reports the error through a broadcast packet:
 
 ```
@@ -386,8 +390,8 @@ edges, but the bytes that carried those edges are lost, so the link follows two 
    no-light-sleep lock; the lock is released 2 s (`UART_LINK_AWAKE_MS`) after the
    last byte. The module is therefore always awake for the reply to a command and
    for the host's reply to forwarded data.
-2. **Host side**: when the host has not seen traffic in either direction for more
-   than 1 s, it sends a throw-away preamble (four `0x55` bytes, five rising edges
+2. **Host side**: before its first frame, and whenever it has not sent anything
+   itself for more than 1 s, it sends a throw-away preamble (four `0x55` bytes, five rising edges
    each) and waits about 10 ms before the real frame. The parser discards the
    preamble as noise, so it is harmless to module firmware without light sleep.
 
@@ -396,6 +400,8 @@ run of >= 3 bytes of `0x55`) at least once since boot. A host that never sends t
 preamble at all (older PM5 firmware, for example) therefore never meets a sleeping
 module: light sleep simply stays off for that link, and no frame is ever lost to it.
 DFS (`CONFIG_PM_ENABLE`) runs independently of this and still applies.
+
+**Command UART clock.** Under DFS the ESP32-C2 switches its PLL off whenever the CPU parks on the crystal (there is no PLL consumer refcount on this chip, unlike C3/C6). The command UART therefore runs from `UART_SCLK_XTAL`, never the default PLL branch: a PLL-clocked UART loses its baud clock between transfers and drops every unsolicited host frame, which looks like a dead module. Keep it that way.
 
 **Power-save switch.** Everything above, DFS and the two-phase advertising
 (section 5.4) hang off one persisted switch, `APP_CMD_SET_SYS_POWER_SAVE`
@@ -537,6 +543,7 @@ APP_WIFI_DISCONNECTED ──► APP_WIFI_CONNECTING ──► APP_WIFI_CONNECTED
 | BSSID | (empty) | 0 or 6 bytes | Yes (`esp_wifi_set_config`) |
 | Authmode Threshold | `WIFI_AUTH_OPEN` | See `wifi_auth_mode_t` | Yes |
 | Listen Interval | 3 | 1-100 (beacon interval) | Yes |
+| Power-save type | 1 (`WIFI_PS_MIN_MODEM`) | 0=none, 1=min modem, 2=max modem (sleeps for the listen interval) | Yes (NVS `wifi_ps`) |
 | Scan Method | `WIFI_FAST_SCAN` | 0=fast, 1=all-channel | Yes |
 | PMF Mode | 0 (disabled) | 0=disabled, 1=capable, 3=required | Yes |
 | Reconnect Interval | 1 second | 0-65535 seconds (0=connect only once) | Yes |
@@ -1297,6 +1304,26 @@ Payload structure (PACKED, 11 bytes):
 
 > **Source**: `main/main.c:1533-1549`
 
+#### 2052 - APP_CMD_SET_WIFI_CFG_PS_MODE - Set WiFi Power-Save Type
+
+| Direction | Format |
+|------|------|
+| Send | Payload = `uint8_t` (0=none, 1=min modem, 2=max modem) |
+| Response | Payload = `uint8_t` applied type |
+
+Persisted in NVS (`app_wifi/wifi_ps`). Applied at once when WiFi is running, and re-applied after every `esp_wifi_start()`, which resets the type to the IDF default (min modem). Max modem sleeps for the configured listen interval (2031/2032) and trades latency for current.
+
+> **Source**: `main/main.c`
+
+#### 2053 - APP_CMD_GET_WIFI_CFG_PS_MODE - Get WiFi Power-Save Type
+
+| Direction | Format |
+|------|------|
+| Send | (no payload) |
+| Response | Payload = `uint8_t` (0=none, 1=min modem, 2=max modem) |
+
+> **Source**: `main/main.c`
+
 ### 9.5 Passthrough Command (5000)
 
 #### 5000 - APP_CMD_SEND_FORWARD_DATA - Send Passthrough Data
@@ -1853,7 +1880,7 @@ Send: APP_CMD_SET_TO_WIFI_FORWARD_MODE (2001) + 0x04 (MQTT Client)
 |--------|------|--------|
 | 1000~1018 | System and general | 19 |
 | 1800~1803 | OTA and reboot | 4 |
-| 2000~2051 | WiFi mode/configuration/connection | 52 |
+| 2000~2053 | WiFi mode/configuration/connection | 54 |
 | 2200~2214 | TCP Server | 15 |
 | 2300~2314 | TCP Client | 15 |
 | 2400~2412 | UDP Server | 13 |

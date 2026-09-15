@@ -15,6 +15,9 @@ esp_err_t settings_wifi_mode_load(int *mode, int default_mode);
 esp_err_t settings_wifi_forward_type_save(int forward_type);
 esp_err_t settings_wifi_forward_type_load(int *forward_type, int default_type);
 
+esp_err_t settings_wifi_ps_mode_save(uint8_t ps_mode);
+esp_err_t settings_wifi_ps_mode_load(uint8_t *ps_mode, uint8_t default_mode);
+
 esp_err_t settings_wifi_tx_pwr_save(int8_t tx_pwr);
 esp_err_t settings_wifi_tx_pwr_load(int8_t *tx_pwr, int8_t default_pwr);
 
