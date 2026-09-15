@@ -837,12 +837,15 @@ static int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg) {
                 ble_spp_server_print_conn_desc(&desc);
             }
 
-            // Request larger MTU to improve data transfer efficiency
-            ble_att_set_preferred_mtu(CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU);
-            rc = ble_gattc_exchange_mtu(event->connect.conn_handle, NULL, NULL);
-            if (rc != 0) {
-                ESP_LOGW(TAG, "MTU exchange failed: rc=%d", rc);
-            }
+            // MTU: leave the exchange to the peer. The ATT spec gives the Exchange
+            // MTU Request to the GATT client, and every client we care about sends
+            // one (Android bridge apps, iOS, the pm3 client). Sending our own here
+            // used to race theirs: Android permits one exchange per connection, so
+            // an app whose request landed while ours was in flight got "busy", never
+            // saw its MTU callback and stayed at 23 while the link was really at 512.
+            // A client that never answered ours also hit NimBLE's 30 s ATT timeout,
+            // which terminates the connection. Our answer to their request is
+            // CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU (512), applied by ble_att_init().
 
             // Request 2M PHY to improve throughput (if both sides support it)
             rc = ble_gap_set_prefered_le_phy(event->connect.conn_handle, 

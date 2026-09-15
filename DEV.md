@@ -445,7 +445,7 @@ The module acts as a BLE Peripheral and runs an SPP (Serial Port Profile) server
 | Discovery Mode | `BLE_GAP_DISC_MODE_GEN` (general discoverable) |
 | Advertising Duration | Infinite (`BLE_HS_FOREVER`) |
 | Advertising Interval | 3 s (`ADV_LOW_DUTY_ITVL_MS`) with power save on (default); NimBLE's fast default (30-60 ms) with it off. Changes take effect at once. |
-| Preferred MTU | `CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU` (config item) |
+| Preferred MTU | `CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU` (config item). The module never sends an Exchange MTU Request itself; the peer (GATT client) initiates the exchange and the module answers with this value. |
 | Preferred PHY | 2M PHY when both sides support it |
 
 > **Source**: `components/app_ble_spp/app_ble_spp.c:551-553, 806-817`
