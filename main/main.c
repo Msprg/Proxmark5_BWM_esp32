@@ -164,6 +164,34 @@ static void on_forward_data_received(uint8_t *data, uint16_t length) {
     app_uart_send_broadcast(APP_BROADCAST_DATA_FORWARD, (const uint8_t *)data, length); // Return value can be ignored
 }
 
+// Wireless client link state, pushed to the host as APP_BROADCAST_LINK_STATE on
+// every change (the host's idle power-off must not fire while a client is on).
+// The BLE callback runs in the NimBLE host task, the TCP one in the server task;
+// app_uart_send_broadcast is thread-safe and each flag is one byte, so no lock.
+static volatile uint8_t s_link_ble = 0;
+static volatile uint8_t s_link_wifi = 0;
+
+static void link_state_report(void) {
+    uint8_t payload[2] = { s_link_ble, s_link_wifi };
+    app_uart_send_broadcast(APP_BROADCAST_LINK_STATE, payload, sizeof(payload)); // Return value can be ignored
+}
+
+static void on_ble_link(bool connected) {
+    uint8_t v = connected ? 1 : 0;
+    if (s_link_ble != v) {
+        s_link_ble = v;
+        link_state_report();
+    }
+}
+
+static void on_tcp_link(bool connected) {
+    uint8_t v = connected ? 1 : 0;
+    if (s_link_wifi != v) {
+        s_link_wifi = v;
+        link_state_report();
+    }
+}
+
 /**
  * @brief Callback for WiFi connected and IP obtained (or IP changed). The forwarding
  * application layer protocol can be started here. NOTE: this callback runs in the
@@ -242,6 +270,7 @@ static esp_err_t wifi_connect_init_additional(void) {
         case WIFI_FORWARD_TCP_SERVER:
             RETURN_ON_FAILURE(app_tcp_server_init()); // Init TCP server; do not start yet — wait for WiFi IP
             RETURN_ON_FAILURE(app_tcp_server_set_rx_callback(on_forward_data_received)); // Register rx callback to forward data to UART
+            RETURN_ON_FAILURE(app_tcp_server_set_link_callback(on_tcp_link));
             break;
         case WIFI_FORWARD_TCP_CLIENT:
             RETURN_ON_FAILURE(app_tcp_client_init());
@@ -280,6 +309,7 @@ static esp_err_t wifi_connect_deinit_additional(void) {
     switch (wifi_forward_type) {
         case WIFI_FORWARD_TCP_SERVER:
             RETURN_ON_FAILURE(app_tcp_server_deinit());
+            on_tcp_link(false);   // the server is gone, so is any client
             RETURN_ON_FAILURE(app_tcp_server_set_rx_callback(NULL));
             break;
         case WIFI_FORWARD_TCP_CLIENT:
@@ -3631,6 +3661,7 @@ void app_main(void) {
     // it stays available until a command switches the forwarding mode or sends data
     ESP_ERROR_CHECK_WITHOUT_ABORT(app_ble_init());
     ESP_ERROR_CHECK_WITHOUT_ABORT(app_ble_set_rx_callback(on_forward_data_received));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(app_ble_set_link_callback(on_ble_link));
     ESP_ERROR_CHECK_WITHOUT_ABORT(app_ble_start()); // Final BLE module start
 
     // Initialize the WiFi forwarding module based on the stored configuration

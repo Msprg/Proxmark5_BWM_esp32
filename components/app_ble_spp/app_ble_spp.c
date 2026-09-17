@@ -72,6 +72,8 @@ typedef struct {
     uint16_t battery_chr_val_handle;
     // RX data callback pointer; set via app_ble_set_rx_callback() to be notified when data arrives.
     app_ble_rx_callback_t rx_callback;
+    // Link callback; set via app_ble_set_link_callback(), called on connect / disconnect.
+    app_ble_link_callback_t link_callback;
     // Pairing security config (dynamic): MITM is enabled by default when bonding is enabled
     uint8_t bonding;
     // Pairing passkey
@@ -830,6 +832,10 @@ static int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg) {
             s_ctx->data_notify_enabled = false;
             s_ctx->battery_notify_enabled = false;
 
+            if (s_ctx->link_callback) {
+                s_ctx->link_callback(true);
+            }
+
             // Set the connection TX power level
             err = esp_ble_tx_power_set_enhanced(ESP_BLE_ENHANCED_PWR_TYPE_CONN, 
                 s_ctx->conn_handle, s_ctx->tx_power_level_for_connection);
@@ -871,6 +877,9 @@ static int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg) {
         s_ctx->conn_handle = BLE_HS_CONN_HANDLE_NONE;
         s_ctx->data_notify_enabled = false;
         s_ctx->battery_notify_enabled = false;
+        if (s_ctx->link_callback) {
+            s_ctx->link_callback(false);
+        }
         s_adv_slow = false;   // just been in use: be quick to find again
         ble_spp_server_advertise();
         return 0;
@@ -1161,6 +1170,10 @@ esp_err_t app_ble_stop(void) {
         s_ctx->conn_handle = BLE_HS_CONN_HANDLE_NONE;
         s_ctx->data_notify_enabled = false;
         s_ctx->battery_notify_enabled = false;
+        // The stack stops before the DISCONNECT event could be delivered.
+        if (s_ctx->link_callback) {
+            s_ctx->link_callback(false);
+        }
     }
 
     esp_err_t err = nimble_port_stop();
@@ -1338,6 +1351,14 @@ esp_err_t app_ble_set_rx_callback(app_ble_rx_callback_t callback) {
         return ESP_ERR_INVALID_STATE;
     }
     s_ctx->rx_callback = callback;
+    return ESP_OK;
+}
+
+esp_err_t app_ble_set_link_callback(app_ble_link_callback_t callback) {
+    if (s_ctx == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_ctx->link_callback = callback;
     return ESP_OK;
 }
 

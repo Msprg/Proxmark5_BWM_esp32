@@ -1613,6 +1613,23 @@ Payload (6 bytes, PACKED):
 
 ---
 
+### 10.5 APP_BROADCAST_LINK_STATE (8092)
+
+**Wireless client link state**, sent on every change (a client connects to or leaves the BLE SPP service or the WiFi TCP server, or the TCP server is torn down). The module does not repeat it, so a host that boots after the module should query `APP_CMD_GET_BLE_SPP_STATUS` once (2 = connected) for the BLE half. The host uses it to hold off its idle power-off while a client is on.
+
+```
+Payload (2 bytes):
+  ┌──────────────┬──────────────┐
+  │ ble (1 byte) │ wifi (1 byte)│
+  │ uint8_t      │ uint8_t      │
+  └──────────────┴──────────────┘
+```
+
+| Field | Description |
+|------|------|
+| `ble` | 1 = a BLE central is connected, 0 = none |
+| `wifi` | 1 = a client is connected to the TCP server, 0 = none |
+
 ## 11. Configuration Persistence and Recovery
 
 ### 11.1 Configuration Save Mechanism
@@ -1898,6 +1915,7 @@ Send: APP_CMD_SET_TO_WIFI_FORWARD_MODE (2001) + 0x04 (MQTT Client)
 | 8089 | `DATA_FORWARD` | Module -> host | Incoming wireless passthrough data |
 | 8090 | `SYS_LOG_MESSAGE` | Module -> host | System log (requires forwarding enabled) |
 | 8091 | `CMD_ERROR` | Module -> host | Command execution failure |
+| 8092 | `LINK_STATE` | Module -> host | BLE / WiFi client connected or gone (on change only) |
 
 ## Appendix C: Error Code Reference
 

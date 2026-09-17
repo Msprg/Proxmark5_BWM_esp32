@@ -8,6 +8,7 @@ typedef enum {
     APP_BROADCAST_DATA_FORWARD                  = 8089,    // Transparent-forward data
     APP_BROADCAST_SYS_LOG_MESSAGE               = 8090,    // System log message; all ESP_LOGx output is also forwarded here
     APP_BROADCAST_CMD_ERROR                     = 8091,    // Command execution failure report; payload is cmd(uint16) + err(int32)
+    APP_BROADCAST_LINK_STATE                    = 8092,    // Wireless client link state; payload ble(uint8) + wifi(uint8), 1 = a client is connected. Sent on every change.
 } app_broadcast_type_t;
 
 
