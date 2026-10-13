@@ -1,0 +1,125 @@
+name: ESP-IDF Build and Package
+
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - '**'
+  release:
+    types:
+      - created
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: espressif/idf:release-v5.5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup ESP-IDF environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f /opt/esp/idf/export.sh ]; then
+            echo "ESP-IDF export script not found at /opt/esp/idf/export.sh"
+            exit 1
+          fi
+          . /opt/esp/idf/export.sh
+          command -v idf.py
+
+      - name: Show ESP-IDF version
+        shell: bash
+        run: |
+          . /opt/esp/idf/export.sh
+          idf.py --version
+
+      - name: Build firmware
+        shell: bash
+        run: |
+          . /opt/esp/idf/export.sh
+          idf.py set-target esp32c2
+          idf.py build
+
+      - name: Merge firmware
+        shell: bash
+        run: |
+          . /opt/esp/idf/export.sh
+          idf.py merge-bin -o "$GITHUB_WORKSPACE/proxmark5_bwm_allinone.bin" -f raw
+
+      - name: Prepare packaged files
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if ! command -v zip >/dev/null 2>&1; then
+            apt-get update
+            apt-get install -y zip
+          fi
+
+          mkdir -p dist
+
+          ARTIFACT_PREFIX="proxmark5_bwm_${GITHUB_REF_NAME:-${GITHUB_SHA}}"
+          ARTIFACT_PREFIX="${ARTIFACT_PREFIX//\//_}"
+
+          MERGED_BIN=""
+          if [ -f proxmark5_bwm_allinone.bin ]; then
+            MERGED_BIN="proxmark5_bwm_allinone.bin"
+          elif [ -f build/proxmark5_bwm_allinone.bin ]; then
+            MERGED_BIN="build/proxmark5_bwm_allinone.bin"
+          fi
+
+          if [ -z "$MERGED_BIN" ]; then
+            echo "Merged firmware not found in expected paths. Try merge again in this step."
+            . /opt/esp/idf/export.sh
+            idf.py merge-bin -o dist/proxmark5_bwm_allinone.bin -f raw
+
+            if [ -f dist/proxmark5_bwm_allinone.bin ]; then
+              MERGED_BIN="dist/proxmark5_bwm_allinone.bin"
+            else
+              echo "Merged firmware still not found. Checked: proxmark5_bwm_allinone.bin, build/proxmark5_bwm_allinone.bin, dist/proxmark5_bwm_allinone.bin"
+              exit 1
+            fi
+          fi
+
+          cp "$MERGED_BIN" dist/proxmark5_bwm_allinone.bin
+          cp dist/proxmark5_bwm_allinone.bin proxmark5_bwm_allinone.bin
+
+          if [ -f build/proxmark5_ble_wifi_module.bin ]; then cp build/proxmark5_ble_wifi_module.bin dist/; fi
+          if [ -f build/proxmark5_ble_wifi_module.elf ]; then cp build/proxmark5_ble_wifi_module.elf dist/; fi
+          if [ -f build/proxmark5_ble_wifi_module.map ]; then cp build/proxmark5_ble_wifi_module.map dist/; fi
+
+          if [ -f build/bootloader/bootloader.bin ]; then cp build/bootloader/bootloader.bin dist/; fi
+          if [ -f build/partition_table/partition-table.bin ]; then cp build/partition_table/partition-table.bin dist/; fi
+
+          cp -f build/flasher_args.json dist/ || true
+          cp -f build/flash_args dist/ || true
+          cp -f build/flash_project_args dist/ || true
+
+          (cd dist && zip -r "../${ARTIFACT_PREFIX}.zip" .)
+
+          echo "artifact_prefix=${ARTIFACT_PREFIX}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.artifact_prefix }}
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Upload release asset
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.package.outputs.artifact_prefix }}.zip
+            dist/proxmark5_ble_wifi_module.bin
+            dist/proxmark5_bwm_allinone.bin
