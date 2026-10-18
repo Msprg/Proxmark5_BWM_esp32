@@ -39,7 +39,7 @@ CONFIG_LWIP_TCPIP_TASK_STACK_SIZE=2048
 CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
 CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA=y
 CONFIG_SPI_FLASH_AUTO_SUSPEND=y
-
+CONFIG_MDNS_ENABLE_CONSOLE_CLI=n
 # --- Idle power ---------------------------------------------------------------
 # WARN by default: INFO on the console UART cost a vsnprintf per event and, with
 # log forwarding on, a second one for the host. The max stays at INFO so the host

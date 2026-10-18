@@ -16,6 +16,7 @@
 #include "app_wifi_scanner.h"
 #include "app_wifi_connect.h"
 #include "app_wifi_netif_cfg.h"
+#include "app_wifi_mdns.h"
 #include "app_tcp_server.h"
 #include "app_tcp_client.h"
 #include "app_udp_server.h"
@@ -442,6 +443,8 @@ static esp_err_t wifi_forward_common_init(void) {
     RETURN_ON_FAILURE(app_wifi_connect_set_callback(APP_WIFI_CONNECT_CALLBACK_DISCONN, on_wifi_disconnect));
     // Initialize supplemental WiFi resources
     RETURN_ON_FAILURE(wifi_connect_init_additional());
+    // mDNS needs the event loop created above
+    ESP_ERROR_CHECK_WITHOUT_ABORT(app_wifi_mdns_start(wifi_host_name));
     return ESP_OK;
 }
 
@@ -790,6 +793,7 @@ static void on_uart_cmd_complete(PacketType_t type, uint16_t cmd, uint8_t *p_dat
         case APP_CMD_SET_TO_WIFI_DISABLE_MODE: {
             if (g_wifi_function_mode == WIFI_FUNCTION_MODE_WIFI_FORWARD) {
                 wifi_connect_deinit_additional();
+                app_wifi_mdns_stop();
                 app_wifi_connect_deinit();
             } else if (g_wifi_function_mode == WIFI_FUNCTION_MODE_WIFI_SCANNER) {
                 app_wifi_scanner_deinit();
@@ -867,6 +871,7 @@ static void on_uart_cmd_complete(PacketType_t type, uint16_t cmd, uint8_t *p_dat
         case APP_CMD_SET_TO_WIFI_SCAN_MODE: {
             if (g_wifi_function_mode == WIFI_FUNCTION_MODE_WIFI_FORWARD) {
                 wifi_connect_deinit_additional();
+                app_wifi_mdns_stop();
                 app_wifi_connect_deinit();
             }
 
@@ -1298,6 +1303,7 @@ static void on_uart_cmd_complete(PacketType_t type, uint16_t cmd, uint8_t *p_dat
                 uart_cmd_error_report(cmd, err);
                 break;
             }
+            app_wifi_mdns_set_hostname((const char*)wifi_host_name);
 
             app_uart_send_response(cmd, NULL, 0);
             break;
